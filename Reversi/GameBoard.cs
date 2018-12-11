@@ -3,9 +3,12 @@ using System.Drawing;
 using System.Windows.Forms;
 
 namespace Reversi {
+    public delegate void StartTurnEvent(int redStones, int blueStones, Player nextPlayer);
+    public delegate void EndGameEvent(int redStones, int blueStones);
+
     public class GameBoard : Control {
-        const int BOARD_WIDTH = 8;
-        const int BOARD_HEIGHT = 8;
+        const int BOARD_WIDTH = 6;
+        const int BOARD_HEIGHT = 6;
 
         public GameBoard() {
             for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -27,17 +30,28 @@ namespace Reversi {
             this.tiles[bottom, left].Stone = Player.Red.CreateStone(this.tiles[bottom, right]);
             this.tiles[bottom, right].Stone = Player.Blue.CreateStone(this.tiles[bottom, right]);
 
-            this.Resize += (o, e) => LayoutTiles();
+            this.Resize += (o, e) => {
+                this.LayoutTiles();
+                this.Invalidate(true);
+            };
 
             this.UpdateTileAvailability();
         }
 
         readonly Tile[,] tiles = new Tile[BOARD_WIDTH, BOARD_HEIGHT];
-        public bool ShowAvailabilityHelp = true;
+        private bool showAvailabilityHelp = true;
 
+        private bool SkippedPreviousTurn { get; set; }
         public Player CurrentPlayer { get; set; } = Player.Blue;
+        public bool Finished { get; private set; } = false;
 
-        public void LayoutTiles() {
+        public event StartTurnEvent OnTurnStart;
+        public event EndGameEvent OnGameEnd;
+
+        /// <summary>
+        /// Sets the <see cref="Control.Location"/> and <see cref="Control.Size"/> of each tile on the <see cref="GameBoard"/>
+        /// </summary>
+        void LayoutTiles() {
             int offsetX = this.ClientSize.Width / BOARD_WIDTH;
             int offsetY = this.ClientSize.Height / BOARD_HEIGHT;
 
@@ -55,26 +69,28 @@ namespace Reversi {
             }
         }
 
+        /// <summary>
+        /// Places a stone at the given coordinates and updates the rest of the game
+        /// </summary>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
         public void PlaceStone(int x, int y) {
             Tile tile = this.tiles[x, y];
-            tile.Stone = CurrentPlayer.CreateStone(tile);
+            tile.Stone = this.CurrentPlayer.CreateStone(tile);
 
             this.ConvertStones(x, y, 0, 1, this.CurrentPlayer);
             this.ConvertStones(x, y, 0, -1, this.CurrentPlayer);
             this.ConvertStones(x, y, 1, 0, this.CurrentPlayer);
             this.ConvertStones(x, y, -1, 0, this.CurrentPlayer);
+            this.ConvertStones(x, y, -1, -1, this.CurrentPlayer);
+            this.ConvertStones(x, y, -1, 1, this.CurrentPlayer);
+            this.ConvertStones(x, y, 1, 1, this.CurrentPlayer);
+            this.ConvertStones(x, y, 1, -1, this.CurrentPlayer);
 
-            if (this.CurrentPlayer == Player.Blue) {
-                this.CurrentPlayer = Player.Red;
-            }
-            else {
-                this.CurrentPlayer = Player.Blue;
-            }
-
-            this.UpdateTileAvailability();
+            this.NextTurn();
         }
 
-        public void ConvertStones(int placedX, int placedY, int incrementX, int incrementY, Player placer) {
+        void ConvertStones(int placedX, int placedY, int incrementX, int incrementY, Player placer) {
             int chainLength = this.ChainLength(placedX, placedY, incrementX, incrementY, placer);
 
             int x = placedX;
@@ -95,7 +111,7 @@ namespace Reversi {
         /// <param name="startY">Starting Y coordinate of the chain</param>
         /// <param name="incrementX">X direction of the chain, usually -1, 0 or 1</param>
         /// <param name="incrementY">Y direction of the chain, usually -1, 0 or 1</param>
-        public int ChainLength(int startX, int startY, int incrementX, int incrementY, Player currentPlayer) {
+        int ChainLength(int startX, int startY, int incrementX, int incrementY, Player currentPlayer) {
             bool hasOponentInBetween = false;
             int chainLength = 0;
 
@@ -107,7 +123,6 @@ namespace Reversi {
                 else if (s is StoneOwned stonePlayer) {
                     if (stonePlayer.Owner == currentPlayer) {
                         if (hasOponentInBetween) {
-                            Console.WriteLine($"chain at ({startX}, {startY}) with increment ({incrementX}, {incrementY}) ending at ({x}, {y})");
                             return chainLength;
                         }
                         else {
@@ -124,13 +139,19 @@ namespace Reversi {
             return 0;
         }
 
-        public void UpdateTileAvailability() {
+        /// <summary>
+        /// Updates the availability for placement of each tile and returns whether the is at least one available tile
+        /// </summary>
+        /// <returns></returns>
+        bool UpdateTileAvailability() {
+            bool hasAvailableTile = false;
             
             for (int x = 0; x < BOARD_WIDTH; x++){
                 for (int y = 0; y < BOARD_HEIGHT; y++) {
                     Tile tile = this.tiles[x, y];
 
                     if (this.RecheckTileAvailability(x, y)) {
+                        hasAvailableTile = true;
                         tile.Stone = new StoneAvailable(tile);
                     }
                     else if(tile.Stone is StoneEmpty) {
@@ -139,9 +160,10 @@ namespace Reversi {
                 }
             }
 
+            return hasAvailableTile;
         }
 
-        public bool RecheckTileAvailability(int tileX, int tileY) {
+        bool RecheckTileAvailability(int tileX, int tileY) {
             if (!(this.tiles[tileX, tileY].Stone is StoneEmpty)) {
                 return false;
             }
@@ -150,95 +172,67 @@ namespace Reversi {
                     this.ChainLength(tileX, tileY, 1, 0, this.CurrentPlayer) > 0 ||
                     this.ChainLength(tileX, tileY, -1, 0, this.CurrentPlayer) > 0 ||
                     this.ChainLength(tileX, tileY, 0, 1, this.CurrentPlayer) > 0 ||
-                    this.ChainLength(tileX, tileY, 0, -1, this.CurrentPlayer) > 0;
+                    this.ChainLength(tileX, tileY, 0, -1, this.CurrentPlayer) > 0 ||
+                    this.ChainLength(tileX, tileY, 1, 1, this.CurrentPlayer) > 0 ||
+                    this.ChainLength(tileX, tileY, -1, 1, this.CurrentPlayer) > 0 ||
+                    this.ChainLength(tileX, tileY, -1, -1, this.CurrentPlayer) > 0 ||
+                    this.ChainLength(tileX, tileY, 1, -1, this.CurrentPlayer) > 0;
             }
+        }
 
-            bool hasOponentInBetween = false;
+        public void NextTurn() {
+            this.CurrentPlayer = this.CurrentPlayer.Oponent;
 
-            for(int x = tileX + 1; x < this.tiles.GetLength(0); x++) {
-                Stone s = this.tiles[x, tileY].Stone;
-                if(s is StoneEmpty) {
-                    break;
-                }
-                if(s is StoneOwned stonePlayer) {
-                    if (stonePlayer.Owner == this.CurrentPlayer) {
-                        if(hasOponentInBetween) {
-                            return true;
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    else {
-                        hasOponentInBetween = true;
-                    }
-                }
-            }
-            hasOponentInBetween = false;
+            int redStones = this.CountStones<StoneRed>();
+            int blueStones = this.CountStones<StoneBlue>();
 
-            for (int x = tileX - 1; x > 0; x--) {
-                Stone s = this.tiles[x, tileY].Stone;
-                if (s is StoneEmpty) {
-                    break;
+            if (!this.UpdateTileAvailability()) {
+                if(this.SkippedPreviousTurn) {
+                    this.EndGame(redStones, blueStones);
                 }
-                if (s is StoneOwned stonePlayer) {
-                    if (stonePlayer.Owner == this.CurrentPlayer) {
-                        if (hasOponentInBetween) {
-                            return true;
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    else {
-                        hasOponentInBetween = true;
-                    }
+                else {
+                    this.SkippedPreviousTurn = true;
+                    this.NextTurn();
                 }
             }
-            hasOponentInBetween = false;
-
-            for (int y = tileY + 1; y < this.tiles.GetLength(1); y++) {
-                Stone s = this.tiles[tileX, y].Stone;
-                if (s is StoneEmpty) {
-                    break;
-                }
-                if (s is StoneOwned stonePlayer) {
-                    if (stonePlayer.Owner == this.CurrentPlayer) {
-                        if (hasOponentInBetween) {
-                            return true;
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    else {
-                        hasOponentInBetween = true;
-                    }
-                }
+            else {
+                this.OnTurnStart?.Invoke(redStones, blueStones, this.CurrentPlayer);
+                this.SkippedPreviousTurn = false;
             }
-            hasOponentInBetween = false;
+        }
 
-            for (int y = tileY - 1; y > 0; y--) {
-                Stone s = this.tiles[tileX, y].Stone;
-                if (s is StoneEmpty) {
-                    break;
-                }
-                if (s is StoneOwned stonePlayer) {
-                    if (stonePlayer.Owner == this.CurrentPlayer) {
-                        if (hasOponentInBetween) {
-                            return true;
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    else {
-                        hasOponentInBetween = true;
+        void EndGame(int redStones, int blueStones) {
+            this.Finished = true;
+            this.OnGameEnd?.Invoke(redStones, blueStones);
+        }
+
+        public int CountStones<S>() where S: Stone {
+            int count = 0;
+
+            for(int x = 0; x < BOARD_WIDTH; x++) {
+                for(int y = 0; y < BOARD_HEIGHT; y++) {
+                    if(this.tiles[x, y].Stone is S) {
+                        count++;
                     }
                 }
             }
 
-            return false;
+            return count;
+        }
+
+        public bool ShowAvailabilityHelp {
+            get => this.showAvailabilityHelp;
+            set {
+                this.showAvailabilityHelp = value;
+                for (int x = 0; x < BOARD_WIDTH; x++) {
+                    for(int y = 0; y < BOARD_HEIGHT; y++) {
+                        Tile tile = this.tiles[x, y];
+                        if(tile.Stone is StoneAvailable) {
+                            tile.Invalidate(true);
+                        }
+                    }
+                }
+            }
         }
 
         public Tile this[int x, int y] {

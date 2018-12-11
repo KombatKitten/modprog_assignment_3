@@ -3,18 +3,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Drawing;
 
 namespace Reversi {
     public abstract class Player {
         public static PlayerBlue Blue;
         public static PlayerRed Red;
+        public static Player Starter;
 
         static Player() {
             PlayerRed.Init();
             PlayerBlue.Init();
+
+            Starter = Blue;
         }
 
         public abstract Stone CreateStone(Tile tile);
+        public abstract Player Oponent {
+            get;
+        }
+
+        public abstract string Name {
+            get;
+        }
+
+        public abstract Color Color {
+            get;
+        }
 
         public class PlayerBlue : Player {
             private PlayerBlue() {
@@ -23,6 +38,18 @@ namespace Reversi {
 
             public override Stone CreateStone(Tile tile) {
                 return new StoneBlue(tile);
+            }
+
+            public override Player Oponent {
+                get => Player.Red;
+            }
+
+            public override string Name {
+                get => "Blue";
+            }
+
+            public override Color Color {
+                get => Color.Blue;
             }
 
             /// <summary>
@@ -40,6 +67,18 @@ namespace Reversi {
 
             public override Stone CreateStone(Tile tile) {
                 return new StoneRed(tile);
+            }
+
+            public override Player Oponent {
+                get => Player.Blue;
+            }
+
+            public override string Name {
+                get => "Red";
+            }
+
+            public override Color Color {
+                get => Color.Red;
             }
 
             /// <summary>

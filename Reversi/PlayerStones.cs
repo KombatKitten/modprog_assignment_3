@@ -11,7 +11,7 @@ namespace Reversi {
 
         }
 
-        protected void DrawStone(Brush stoneBrush, Graphics g, Size clip) {
+        protected static void DrawStone(Brush stoneBrush, Graphics g, Size clip) {
             g.FillEllipse(stoneBrush, 1, 1, clip.Width - 2, clip.Height - 2);
         }
 
@@ -25,8 +25,10 @@ namespace Reversi {
 
         }
 
+        private static readonly Brush brush = new SolidBrush(Player.Blue.Color);
+
         public override void Draw(Graphics g, Size clip) {
-            this.DrawStone(Brushes.Blue, g, clip);
+            DrawStone(brush, g, clip);
         }
 
         public override Player Owner {
@@ -38,11 +40,13 @@ namespace Reversi {
 
     class StoneRed : StoneOwned {
         public StoneRed(Tile t) : base(t) {
-            
+
         }
 
+        private static readonly Brush brush = new SolidBrush(Player.Red.Color);
+
         public override void Draw(Graphics g, Size clip) {
-            this.DrawStone(Brushes.Red, g, clip);
+            DrawStone(brush, g, clip);
         }
 
         public override Player Owner {

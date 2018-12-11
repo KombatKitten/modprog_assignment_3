@@ -21,12 +21,12 @@ namespace Reversi {
             this.x = x;
             this.y = y;
             
-            this.Click += OnTileClick;
+            this.Click += this.OnTileClick;
         }
 
         private void OnTileClick(object sender, EventArgs e) {
-            if(this.stone.Available) {
-                this.GameBoard.PlaceStone(x, y);
+            if(this.stone.Available && !this.GameBoard.Finished) {
+                this.GameBoard.PlaceStone(this.x, this.y);
             }
         }
 
@@ -56,7 +56,7 @@ namespace Reversi {
             }
             set {
                 this.stone = value;
-                this.Invalidate();
+                this.Invalidate(true);
             }
         }
     }
