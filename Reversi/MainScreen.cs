@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Reversi.AI;
 
 namespace Reversi {
     public partial class MainScreen : Form {
@@ -40,6 +41,8 @@ namespace Reversi {
             this.redScore.Stones = redStones;
             this.blueScore.Stones = blueStones;
             this.currentTurn.Text = nextPlayer.Name + " is to put his";
+
+            Console.WriteLine(this.gameBoard.ToHeadless().ToString());
         }
 
         private Button newGame = new Button() {
@@ -92,11 +95,11 @@ namespace Reversi {
             int maxWidth = this.ClientRectangle.Width;
             int maxHeight = this.ClientRectangle.Height - GAME_BOARD_OFFSET_TOP;
 
-            float tileSize = Math.Min((float)maxWidth / GameBoard.BoardWidth,(float)maxHeight / GameBoard.BoardHeight);
+            float tileSize = Math.Min((float)maxWidth / GameBoard.BOARD_WIDTH,(float)maxHeight / GameBoard.BOARD_HEIGHT);
 
             Size gameBoardSize = new Size(
-                (int)(tileSize * GameBoard.BoardWidth),
-                (int)(tileSize * GameBoard.BoardHeight)
+                (int)(tileSize * GameBoard.BOARD_WIDTH),
+                (int)(tileSize * GameBoard.BOARD_HEIGHT)
             );
 
             this.gameBoard.Size = gameBoardSize;

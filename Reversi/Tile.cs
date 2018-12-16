@@ -38,10 +38,10 @@ namespace Reversi {
             int width = this.Width;
             int height = this.Height;
 
-            if(this.x == GameBoard.BoardWidth - 1) {
+            if(this.x == GameBoard.BOARD_WIDTH - 1) {
                 width -= 1;
             }
-            if (this.y == GameBoard.BoardHeight - 1) {
+            if (this.y == GameBoard.BOARD_HEIGHT - 1) {
                 height -= 1;
             }
 
@@ -58,6 +58,14 @@ namespace Reversi {
                 this.stone = value;
                 this.Invalidate(true);
             }
+        }
+
+        public int X {
+            get => this.x;
+        }
+
+        public int Y {
+            get => this.y;
         }
     }
 }

@@ -1,14 +1,15 @@
 ﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
+using Reversi.AI;
 
 namespace Reversi {
     public delegate void StartTurnEvent(int redStones, int blueStones, Player nextPlayer);
     public delegate void EndGameEvent(int redStones, int blueStones);
 
     public class GameBoard : Control {
-        const int BOARD_WIDTH = 6;
-        const int BOARD_HEIGHT = 6;
+        public const int BOARD_WIDTH = 8;   //changing these values will make the gameboard smaller but will also break the AI.
+        public const int BOARD_HEIGHT = 8;
 
         public GameBoard() {
             for (int x = 0; x < BOARD_WIDTH; x++) {
@@ -140,7 +141,7 @@ namespace Reversi {
         }
 
         /// <summary>
-        /// Updates the availability for placement of each tile and returns whether the is at least one available tile
+        /// Updates the availability for placement of each tile and returns whether there is at least one available tile
         /// </summary>
         /// <returns></returns>
         bool UpdateTileAvailability() {
@@ -224,6 +225,7 @@ namespace Reversi {
             get => this.showAvailabilityHelp;
             set {
                 this.showAvailabilityHelp = value;
+
                 for (int x = 0; x < BOARD_WIDTH; x++) {
                     for(int y = 0; y < BOARD_HEIGHT; y++) {
                         Tile tile = this.tiles[x, y];
@@ -235,22 +237,28 @@ namespace Reversi {
             }
         }
 
-        public Tile this[int x, int y] {
-            get {
-                return this.tiles[x, y];
-            }
-        }
+        public HeadlessGameBoard ToHeadless() {
+            var result = new HeadlessGameBoard(this.CurrentPlayer == Player.Red);
 
-        public static int BoardWidth {
-            get {
-                return BOARD_WIDTH;
-            }
-        }
+            foreach(Tile tile in this.tiles) {
+                byte state;
 
-        public static int BoardHeight {
-            get {
-                return BOARD_HEIGHT;
+                switch(tile.Stone) {
+                    case StoneRed _:
+                        state = TileState.Red;
+                        break;
+                    case StoneBlue _:
+                        state = TileState.Blue;
+                        break;
+                    default:
+                        state = TileState.Empty;
+                        break;
+                }
+
+                result[tile.X, tile.Y] = state;
             }
+
+            return result;
         }
     }
 }
