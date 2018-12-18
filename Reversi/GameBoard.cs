@@ -12,10 +12,6 @@ namespace Reversi {
         public const int BOARD_HEIGHT = 8;
 
         public GameBoard() {
-            Console.WriteLine("LALALALALAL");
-
-            throw new Exception("Test");
-
             for (int x = 0; x < BOARD_WIDTH; x++) {
                 for (int y = 0; y < BOARD_HEIGHT; y++) {
                     Tile tile = new Tile(this, x, y);
