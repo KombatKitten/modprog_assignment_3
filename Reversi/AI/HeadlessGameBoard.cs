@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace Reversi.AI {
     public static class TileState {
@@ -15,29 +16,380 @@ namespace Reversi.AI {
     /// Highly optimized not-a-Control version of the <see cref="GameBoard"/> used for AI computations
     /// </summary>
     public struct HeadlessGameBoard {
-        public const int BOARD_WIDTH = GameBoard.BOARD_HEIGHT;  //measured in tiles
-        public const int BOARD_HEIGHT = GameBoard.BOARD_WIDTH;  //measured in tiles
+        //changing these values will break the AI.
+        public const int BOARD_WIDTH = 8;  //measured in tiles
+        public const int BOARD_HEIGHT = 8;  //measured in tiles
         public const int BOARD_HALF_HEIGHT = BOARD_HEIGHT / 2;
         public const int TILE_SIZE = 2;    //the size of one tile in memory measured in bits
 
-        public HeadlessGameBoard(bool redPlays) {
+        public HeadlessGameBoard(byte player) {
             this.firstTiles = 0;
             this.lastTiles = 0;
-            this.redPlays = redPlays;
+            this.player = player;
+            this.skippedPreviousTurn = false;
         }
 
         ulong firstTiles; //first 32 tiles
         ulong lastTiles;  //last 32 tiles
-        bool redPlays;
+        byte player;
+        bool skippedPreviousTurn;
 
         /// <summary>
         /// Returns the best move according to the AI and it's score
         /// </summary>
         /// <param name="maxDepth">How many moves into the future the AI will simulate</param>
         /// <param name="maxNewThreadDepth">How many moves into the future the AI will create new threads for simulation</param>
-        public (int x, int y, int score) BestMove(int maxDepth, int maxNewThreadDepth) {
+        public (int x, int y, int score) BestMove(int maxDepth, int maxNewThreadDepth, byte maximizingPlayer) {
+            // warning: this method is highly optimized and thus quite unreadable. you'd better just assume it works...
+            var self = this;
+
+            bool hasOponentInBetween = false;
+            bool startsWithOwnColor = false;
+
+            int totalAvailableTiles = 0;
+            ulong allAvailableTiles = 0;
+            ulong horizontalAvailableTilesToRight = 0;
+            ulong horizontalAvailableTilesToLeft = 0;
+            ulong verticalAvailableTilesToBottom = 0;
+            ulong verticalAvailableTilesToTop = 0;
+
+            ulong diagonalAvailableTilesToBottomRight = 0;
+            ulong diagonalAvailableTilesToTopLeft = 0;
+            ulong diagonalAvailableTilesToBottomLeft = 0;
+            ulong diagonalAvailableTilesToTopRight = 0;
+
+            void CheckTileAvailability(int startX, int startY, int endX, int endY, int scanDirectionX, int scanDirectionY, ref ulong availability) {
+                int minX = startX < endX ? startX : endX;
+                int maxX = startX < endX ? endX : startX;
+
+                int minY = startY < endY ? startY : endY;
+                int maxY = startY < endY ? endY : startY;
+
+                int incrementX = Math.Sign(endX - startX);
+                int incrementY = Math.Sign(endY - startY);
+
+                for (int x = startX, y = startY; x >= minX && x <= maxX && y >= minY && y <= maxY; x += incrementX, y += incrementY) {
+                    hasOponentInBetween = false;
+                    startsWithOwnColor = false;
+                    
+                    for (int x2 = x, y2 = y; x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT; x2 += scanDirectionX, y2 += scanDirectionY) {
+                        TileLogic(x2, y2, ref availability);
+                    }
+                }
+            }
+
+            CheckTileAvailability(0, 0, 0, BOARD_HEIGHT - 1, 1, 0, ref horizontalAvailableTilesToRight);
+            CheckTileAvailability(BOARD_WIDTH - 1, 0, BOARD_WIDTH - 1, BOARD_HEIGHT - 1, -1, 0, ref horizontalAvailableTilesToLeft);
+            CheckTileAvailability(0, 0, BOARD_WIDTH - 1, 0, 0, 1, ref verticalAvailableTilesToBottom);
+            CheckTileAvailability(0, BOARD_HEIGHT - 1, BOARD_WIDTH - 1, BOARD_HEIGHT - 1, 0, -1, ref verticalAvailableTilesToTop);
+
+            CheckTileAvailability(0, 0, BOARD_WIDTH - 1 - 2, 0, 1, 1, ref diagonalAvailableTilesToBottomRight);
+            CheckTileAvailability(BOARD_WIDTH - 1, BOARD_HEIGHT - 1, 2, BOARD_HEIGHT - 1, -1, -1, ref diagonalAvailableTilesToTopLeft);
+
+            CheckTileAvailability(2, 0, BOARD_WIDTH - 1, 0, -1, 1, ref diagonalAvailableTilesToBottomLeft);
+            CheckTileAvailability(0, BOARD_HEIGHT - 1, BOARD_WIDTH - 1 - 2, BOARD_HEIGHT - 1, 1, -1, ref diagonalAvailableTilesToTopRight);
+
+            void TileLogic(int x, int y, ref ulong availability) {
+                byte tileState = self[x, y];
+                if (tileState == self.player) {
+
+                    startsWithOwnColor = true;
+                    hasOponentInBetween = false;
+                }
+                else if (tileState == TileState.Empty) {
+                    if (startsWithOwnColor && hasOponentInBetween) {
+                        //found possible move
+                        int xLast = x;
+                        int yLast = y;
+
+                        if (xLast > -1 && yLast > -1 && xLast < BOARD_WIDTH && yLast < BOARD_HEIGHT //check bounds
+                            && self[xLast, yLast] == TileState.Empty) /* check if tile is empty */ {
+
+                            ulong index = 1ul << xLast + yLast * BOARD_WIDTH;
+                            availability |= index;
+
+                            if ((allAvailableTiles & index) == 0) {
+                                allAvailableTiles |= index;
+                                totalAvailableTiles += 1;
+                            }
+                        }
+                    }
+                    startsWithOwnColor = false;
+                    hasOponentInBetween = false;
+                }
+                else {
+                    //found oponent stone
+                    hasOponentInBetween = true;
+                }
+            }
             
-            throw new NotImplementedException();
+            //calculate score
+            if(maxDepth < 1) {
+                return (-1, -1, this.CalcScore(maximizingPlayer));
+            }
+            else if(totalAvailableTiles < 1) {
+                //no move possible, skip turn or end game
+                if (this.skippedPreviousTurn) {
+                    //the game has ended
+                    var (red, blue) = this.CountStones();
+                    var score = maximizingPlayer == TileState.Red ? red - blue : blue - red;
+
+                    /// Draw gets a score of 0, winning <see cref="int.MaxValue"/>, losing negative <see cref="int.MaxValue"/>
+                    return (-1, -1, Math.Sign(score) * int.MaxValue);
+                }
+                else {
+                    HeadlessGameBoard copy = new HeadlessGameBoard() {
+                        player = self.player == TileState.Red ? TileState.Blue : TileState.Red,
+                        firstTiles = self.firstTiles,
+                        lastTiles = self.lastTiles,
+                        skippedPreviousTurn = true,
+                    };
+
+                    return copy.BestMove(maxDepth, maxNewThreadDepth, maximizingPlayer);
+                }
+            }
+            else if(maxNewThreadDepth > 0) {
+                Thread[] threads = new Thread[totalAvailableTiles];
+                (int x, int y, int score)[] scores = new (int, int, int)[totalAvailableTiles];
+
+                int nextThreadId = 0;
+
+                for (int i = 0; i < BOARD_HEIGHT * BOARD_WIDTH; i++) {
+                    if ((allAvailableTiles & (1ul << i)) != 0) {
+                        int threadId = nextThreadId;
+
+                        int iCopy = i;
+                        int x = iCopy % BOARD_WIDTH;
+                        int y = iCopy / BOARD_WIDTH;
+
+                        threads[threadId] = new Thread(() => {
+                            HeadlessGameBoard copy = new HeadlessGameBoard() {
+                                player = self.player == TileState.Red ? TileState.Blue : TileState.Red,
+                                firstTiles = self.firstTiles,
+                                lastTiles = self.lastTiles,
+                                skippedPreviousTurn = false,
+                            };
+
+                            if ((horizontalAvailableTilesToRight & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, 1, 0, self.player);
+                            }
+                            if ((horizontalAvailableTilesToLeft & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, -1, 0, self.player);
+                            }
+                            if ((verticalAvailableTilesToBottom & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, 0, 1, self.player);
+                            }
+                            if ((verticalAvailableTilesToTop & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, 0, -1, self.player);
+                            }
+                            if ((diagonalAvailableTilesToBottomRight & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, 1, 1, self.player);
+                            }
+                            if ((diagonalAvailableTilesToTopLeft & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, -1, -1, self.player);
+                            }
+                            if ((diagonalAvailableTilesToBottomLeft & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, -1, 1, self.player);
+                            }
+                            if ((diagonalAvailableTilesToTopRight & (1ul << iCopy)) != 0) {
+                                copy.ReplaceStones(x, y, 1, -1, self.player);
+                            }
+                            
+                            scores[threadId] = (x, y, copy.BestMove(maxDepth - 1, maxNewThreadDepth - 1, maximizingPlayer).score);
+                        });
+                        threads[threadId].Start();
+
+                        nextThreadId++;
+                    }
+                }
+
+                threads[0].Join();
+                (int x, int y, int score) bestScore = scores[0];
+
+                for(int i = 1; i < totalAvailableTiles; i++) {
+                    threads[i].Join();
+                    if((scores[i].score > bestScore.score) == (self.player == maximizingPlayer)) {
+                        bestScore = scores[i];
+                    }
+                }
+                return bestScore;
+            }
+            else {
+                (int x, int y, int score)[] scores = new (int, int, int)[totalAvailableTiles];
+
+                int index = 0;
+                for (int i = 0; i < BOARD_HEIGHT * BOARD_WIDTH; i++) {
+                    if ((allAvailableTiles & (1ul << i)) != 0) {
+
+                        int x = i % BOARD_WIDTH;
+                        int y = i / BOARD_WIDTH;
+                        
+                        HeadlessGameBoard copy = new HeadlessGameBoard() {
+                            player = self.player == TileState.Red ? TileState.Blue : TileState.Red,
+                            firstTiles = self.firstTiles,
+                            lastTiles = self.lastTiles,
+                            skippedPreviousTurn = false,
+                        };
+
+                        if ((horizontalAvailableTilesToRight & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, 1, 0, self.player);
+                        }
+                        if ((horizontalAvailableTilesToLeft & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, -1, 0, self.player);
+                        }
+                        if ((verticalAvailableTilesToBottom & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, 0, 1, self.player);
+                        }
+                        if ((verticalAvailableTilesToTop & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, 0, -1, self.player);
+                        }
+                        if ((diagonalAvailableTilesToBottomRight & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, 1, 1, self.player);
+                        }
+                        if ((diagonalAvailableTilesToTopLeft & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, -1, -1, self.player);
+                        }
+                        if ((diagonalAvailableTilesToBottomLeft & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, -1, 1, self.player);
+                        }
+                        if ((diagonalAvailableTilesToTopRight & (1ul << i)) != 0) {
+                            copy.ReplaceStones(x, y, 1, -1, self.player);
+                        }
+
+                        scores[index++] = (x, y, copy.BestMove(maxDepth - 1, maxNewThreadDepth - 1, maximizingPlayer).score);
+                    }
+                }
+
+                (int x, int y, int score) bestScore = scores[0];
+                for (int i = 1; i < totalAvailableTiles; i++) {
+                    if ((scores[i].score > bestScore.score) == (self.player == maximizingPlayer)) {
+                        bestScore = scores[i];
+                    }
+                }
+                return bestScore;
+            }
+        }
+
+        private void ReplaceStones(int startX, int startY, int incrementX, int incrementY, byte targetTileState) {
+            for (int x = startX, y = startY; this[x, y] != targetTileState; x += incrementX, y += incrementY) {
+                this[x, y] = targetTileState;
+            }
+        }
+
+        private (int red, int blue) CountStones() {
+
+            int redStones = 0;
+            int blueStones = 0;
+            for (int x = 1; x < BOARD_WIDTH - 1; x++) {
+                for (int y = 1; y < BOARD_HEIGHT - 1; y++) {
+                    switch (this[x, y]) {
+                        case TileState.Red:
+                            redStones++;
+                            break;
+                        case TileState.Blue:
+                            blueStones++;
+                            break;
+                    }
+                }
+            }
+
+            return (redStones, blueStones);
+        }
+
+        private int CalcScore(byte maximizingPlayer) {
+            const int DEFAULT_SCORE = 2;
+            const int EDGE_SCORE = 3;
+            const int CORNER_SCORE = 4;
+
+            int redScore = 0;
+            int blueScore = 0;
+
+            for (int x = 1; x < BOARD_WIDTH - 1; x++) {
+                for (int y = 1; y < BOARD_HEIGHT - 1; y++) {
+                    switch (this[x, y]) {
+                        case TileState.Red:
+                            redScore += DEFAULT_SCORE;
+                            break;
+                        case TileState.Blue:
+                            blueScore += DEFAULT_SCORE;
+                            break;
+                    }
+                }
+                //evaluate tiles at the left and right edge
+                switch (this[x, 0]) {
+                    case TileState.Red:
+                        redScore += EDGE_SCORE;
+                        break;
+                    case TileState.Blue:
+                        blueScore += EDGE_SCORE;
+                        break;
+                }
+
+                switch (this[x, BOARD_HEIGHT - 1]) {
+                    case TileState.Red:
+                        redScore += EDGE_SCORE;
+                        break;
+                    case TileState.Blue:
+                        blueScore += EDGE_SCORE;
+                        break;
+                }
+            }
+            //evaluate tiles at the top and bottom edge
+            for (int y = 1; y < BOARD_HEIGHT - 1; y++) {
+                switch (this[0, y]) {
+                    case TileState.Red:
+                        redScore += EDGE_SCORE;
+                        break;
+                    case TileState.Blue:
+                        blueScore += EDGE_SCORE;
+                        break;
+                }
+
+                switch (this[BOARD_WIDTH - 1, y]) {
+                    case TileState.Red:
+                        redScore += EDGE_SCORE;
+                        break;
+                    case TileState.Blue:
+                        blueScore += EDGE_SCORE;
+                        break;
+                }
+            }
+
+            //evaluate tiles at the corners
+            switch (this[0, 0]) {
+                case TileState.Red:
+                    redScore += CORNER_SCORE;
+                    break;
+                case TileState.Blue:
+                    blueScore += CORNER_SCORE;
+                    break;
+            }
+            switch (this[0, BOARD_HEIGHT - 1]) {
+                case TileState.Red:
+                    redScore += CORNER_SCORE;
+                    break;
+                case TileState.Blue:
+                    blueScore += CORNER_SCORE;
+                    break;
+            }
+            switch (this[BOARD_WIDTH - 1, 0]) {
+                case TileState.Red:
+                    redScore += CORNER_SCORE;
+                    break;
+                case TileState.Blue:
+                    blueScore += CORNER_SCORE;
+                    break;
+            }
+            switch (this[BOARD_WIDTH - 1, BOARD_HEIGHT - 1]) {
+                case TileState.Red:
+                    redScore += CORNER_SCORE;
+                    break;
+                case TileState.Blue:
+                    blueScore += CORNER_SCORE;
+                    break;
+            }
+
+            return this.player == TileState.Red ? redScore - blueScore : blueScore - redScore;
         }
 
         public byte this[int x, int y] {

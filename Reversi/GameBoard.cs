@@ -8,10 +8,14 @@ namespace Reversi {
     public delegate void EndGameEvent(int redStones, int blueStones);
 
     public class GameBoard : Control {
-        public const int BOARD_WIDTH = 8;   //changing these values will make the gameboard smaller but will also break the AI.
+        public const int BOARD_WIDTH = 8; //changing these values will make the gameboard bigger/smaller but will also disable the AI.
         public const int BOARD_HEIGHT = 8;
 
         public GameBoard() {
+            Console.WriteLine("LALALALALAL");
+
+            throw new Exception("Test");
+
             for (int x = 0; x < BOARD_WIDTH; x++) {
                 for (int y = 0; y < BOARD_HEIGHT; y++) {
                     Tile tile = new Tile(this, x, y);
@@ -43,7 +47,7 @@ namespace Reversi {
         private bool showAvailabilityHelp = true;
 
         private bool SkippedPreviousTurn { get; set; }
-        public Player CurrentPlayer { get; set; } = Player.Blue;
+        public Player CurrentPlayer { get; set; } = Player.Starter;
         public bool Finished { get; private set; } = false;
 
         public event StartTurnEvent OnTurnStart;
@@ -143,7 +147,6 @@ namespace Reversi {
         /// <summary>
         /// Updates the availability for placement of each tile and returns whether there is at least one available tile
         /// </summary>
-        /// <returns></returns>
         bool UpdateTileAvailability() {
             bool hasAvailableTile = false;
             
@@ -238,7 +241,7 @@ namespace Reversi {
         }
 
         public HeadlessGameBoard ToHeadless() {
-            var result = new HeadlessGameBoard(this.CurrentPlayer == Player.Red);
+            var result = new HeadlessGameBoard(this.CurrentPlayer == Player.Red ? TileState.Red : TileState.Blue);
 
             foreach(Tile tile in this.tiles) {
                 byte state;

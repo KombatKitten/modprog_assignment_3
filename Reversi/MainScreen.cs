@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Reversi.AI;
+using System.Threading;
 
 namespace Reversi {
     public partial class MainScreen : Form {
@@ -25,6 +26,23 @@ namespace Reversi {
 
             this.newGame.Click += (s, e) => this.ResetGame();
             this.toggleHelp.Click += (s, e) => this.gameBoard.ShowAvailabilityHelp = !this.gameBoard.ShowAvailabilityHelp;
+            this.autoPlayer.Click += (s, e) => this.AutoPlay();
+
+            this.AIModes.Items.AddRange(new AIMode[]{
+                new AIMode() { Text = "No AI" },
+                new AIMode() { Text = "Blue vs AI", RedAI = true },
+                new AIMode() { Text = "AI vs Red", BlueAI = true },
+                new AIMode() { Text = "AI vs AI", BlueAI = true, RedAI = true }
+            });
+            this.AIModes.SelectedIndex = 0;
+
+            this.AIModes.SelectedValueChanged += (s, e) => {
+                AIMode selectedMode = (AIMode)(this.AIModes.SelectedItem);
+                this.BlueAI = selectedMode.BlueAI;
+                this.RedAI = selectedMode.RedAI;
+
+                this.CheckAutoPlay();
+            };
 
             this.Controls.AddRange(new Control[]{
                 this.newGame,
@@ -34,6 +52,11 @@ namespace Reversi {
                 this.currentTurn,
             });
 
+            if(GameBoard.BOARD_HEIGHT == HeadlessGameBoard.BOARD_HEIGHT && GameBoard.BOARD_WIDTH == HeadlessGameBoard.BOARD_WIDTH) {
+                this.Controls.Add(this.autoPlayer);
+                this.Controls.Add(this.AIModes);
+            }
+
             this.ResetGame();
         }
 
@@ -42,7 +65,28 @@ namespace Reversi {
             this.blueScore.Stones = blueStones;
             this.currentTurn.Text = nextPlayer.Name + " is to put his";
 
-            Console.WriteLine(this.gameBoard.ToHeadless().ToString());
+            this.CheckAutoPlay();
+        }
+
+        private void CheckAutoPlay() {
+            const int PLAY_DELAY = 200;
+
+            var self = this;
+
+            Console.WriteLine("checking auto play");
+
+            if ((this.gameBoard.CurrentPlayer == Player.Red && this.RedAI) || (this.gameBoard.CurrentPlayer == Player.Blue && this.BlueAI)) {
+                Console.WriteLine("setting up auto play");
+                var timer = new System.Windows.Forms.Timer {
+                    Interval = PLAY_DELAY,
+                    Enabled = true,
+                };
+                timer.Tick += (s2, e2) => {
+                    Console.WriteLine("starting auto play");
+                    timer.Enabled = false;
+                    self.AutoPlay();
+                };
+            }
         }
 
         private Button newGame = new Button() {
@@ -54,6 +98,13 @@ namespace Reversi {
         private InterimScore redScore = new InterimScore(RED_START_STONES, Color.Red);
         private InterimScore blueScore = new InterimScore(BLUE_START_STONES, Color.Blue);
         private Label currentTurn = new Label();
+        private Button autoPlayer = new Button() {
+            Text = "Auto Play"
+        };
+        private ComboBox AIModes = new ComboBox();
+
+        public bool BlueAI { get; private set; } = false;
+        public bool RedAI { get; private set; } = false;
 
         GameBoard gameBoard = new GameBoard() {
             Location = new Point(0, GAME_BOARD_OFFSET_TOP),
@@ -76,9 +127,14 @@ namespace Reversi {
             this.currentTurn.Text = Player.Starter.Name + " is to put his";
 
             this.LayoutControls();
+
+            this.CheckAutoPlay();
         }
 
         private void OnGameEnd(int redStones, int blueStones) {
+            this.blueScore.Stones = blueStones;
+            this.redScore.Stones = redStones;
+
             if(redStones > blueStones) {
                 this.currentTurn.Text = Player.Red.Name + " won the game";
             }
@@ -133,6 +189,30 @@ namespace Reversi {
 
             this.currentTurn.Location = new Point(this.ClientSize.Width / 2 - this.currentTurn.Width / 2,
                 GAME_BOARD_OFFSET_TOP / 2 - this.currentTurn.Height / 2);
+            
+            this.AIModes.Location =new Point(this.ClientSize.Width - this.AIModes.Width, 0);
+        }
+
+        public void AutoPlay() {
+            if (GameBoard.BOARD_HEIGHT != HeadlessGameBoard.BOARD_HEIGHT || GameBoard.BOARD_WIDTH != HeadlessGameBoard.BOARD_WIDTH) {
+                MessageBox.Show("Can't use AI in board size other then 8x8");
+                return;
+            }
+
+            const int MAX_NEW_THREAD_DEPTH = 1;
+            const int MAX_CALCULATIONS_DEPTH = 6;
+
+            byte maximizingPlayer = this.gameBoard.CurrentPlayer == Player.Red ? TileState.Red : TileState.Blue;
+            
+            var (x, y, score) = this.gameBoard.ToHeadless().BestMove(MAX_CALCULATIONS_DEPTH, MAX_NEW_THREAD_DEPTH, maximizingPlayer);
+
+            if(x < 0 || y < 0) {
+                Console.WriteLine("No move found!");
+                Console.WriteLine($"x: {x}, y: {y}, score: {score}");
+            }
+            else {
+                this.gameBoard.PlaceStone(x, y);
+            }
         }
     }
 
@@ -168,5 +248,13 @@ namespace Reversi {
                 this.score.Invalidate();
             }
         }
+    }
+
+    public class AIMode {
+        public bool BlueAI { get; set; } = false;
+        public bool RedAI { get; set; } = false;
+        public string Text { get; set; } = "";
+
+        public override string ToString() => this.Text;
     }
 }
