@@ -19,6 +19,7 @@ namespace Reversi {
         }
 
         public abstract Stone CreateStone(Tile tile);
+
         public abstract Player Oponent {
             get;
         }

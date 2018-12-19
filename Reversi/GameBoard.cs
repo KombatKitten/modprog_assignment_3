@@ -8,10 +8,12 @@ namespace Reversi {
     public delegate void EndGameEvent(int redStones, int blueStones);
 
     public class GameBoard : Control {
-        public const int BOARD_WIDTH = 8; //changing these values will make the gameboard bigger/smaller but will also disable the AI.
+        //changing these values will make the gameboard bigger/smaller, but will also disable the AI.
+        public const int BOARD_WIDTH = 8;
         public const int BOARD_HEIGHT = 8;
 
         public GameBoard() {
+            //initialize tiles
             for (int x = 0; x < BOARD_WIDTH; x++) {
                 for (int y = 0; y < BOARD_HEIGHT; y++) {
                     Tile tile = new Tile(this, x, y);
@@ -21,6 +23,7 @@ namespace Reversi {
                 }
             }
 
+            //place first four stones
             int bottom = BOARD_WIDTH / 2;
             int right= BOARD_WIDTH / 2;
             int top = bottom - 1;
@@ -91,6 +94,14 @@ namespace Reversi {
             this.NextTurn();
         }
 
+        /// <summary>
+        /// Converts stones when a stone is placed at (<paramref name="placedX"/>, <paramref name="placedY"/>)
+        /// </summary>
+        /// <param name="placedX">X coordinate where the stone is placed</param>
+        /// <param name="placedY">Y coordinate where the stone is placed</param>
+        /// <param name="incrementX">The X direction to convert</param>
+        /// <param name="incrementY">The Y directino to convert</param>
+        /// <param name="placer">the player that placed the stone</param>
         void ConvertStones(int placedX, int placedY, int incrementX, int incrementY, Player placer) {
             int chainLength = this.ChainLength(placedX, placedY, incrementX, incrementY, placer);
 
@@ -163,6 +174,9 @@ namespace Reversi {
             return hasAvailableTile;
         }
 
+        /// <summary>
+        /// Calculates whether the tile at the given coordinates should be available
+        /// </summary>
         bool RecheckTileAvailability(int tileX, int tileY) {
             if (!(this.tiles[tileX, tileY].Stone is StoneEmpty)) {
                 return false;
@@ -180,6 +194,9 @@ namespace Reversi {
             }
         }
 
+        /// <summary>
+        /// Checks whether the game should and if the playing player should be switched. Does so if needed
+        /// </summary>
         public void NextTurn() {
             this.CurrentPlayer = this.CurrentPlayer.Oponent;
 
@@ -201,11 +218,20 @@ namespace Reversi {
             }
         }
 
+        /// <summary>
+        /// Ends the game
+        /// </summary>
+        /// <param name="redStones">The amount of red stones on the board</param>
+        /// <param name="blueStones">The amount of blue stones on the board</param>
         void EndGame(int redStones, int blueStones) {
             this.Finished = true;
             this.OnGameEnd?.Invoke(redStones, blueStones);
         }
 
+        /// <summary>
+        /// Counts the amount of stones of the given type
+        /// </summary>
+        /// <typeparam name="S">Type to count</typeparam>
         public int CountStones<S>() where S: Stone {
             int count = 0;
 
@@ -220,22 +246,9 @@ namespace Reversi {
             return count;
         }
 
-        public bool ShowAvailabilityHelp {
-            get => this.showAvailabilityHelp;
-            set {
-                this.showAvailabilityHelp = value;
-
-                for (int x = 0; x < BOARD_WIDTH; x++) {
-                    for(int y = 0; y < BOARD_HEIGHT; y++) {
-                        Tile tile = this.tiles[x, y];
-                        if(tile.Stone is StoneAvailable) {
-                            tile.Invalidate(true);
-                        }
-                    }
-                }
-            }
-        }
-
+        /// <summary>
+        /// Generates a <see cref="HeadlessGameBoard"/> based on the current state
+        /// </summary>
         public HeadlessGameBoard ToHeadless() {
             var result = new HeadlessGameBoard(this.CurrentPlayer == Player.Red ? TileState.Red : TileState.Blue);
 
@@ -258,6 +271,24 @@ namespace Reversi {
             }
 
             return result;
+        }
+
+        public bool ShowAvailabilityHelp {
+            get => this.showAvailabilityHelp;
+            set {
+                this.showAvailabilityHelp = value;
+
+                //rerender the available tiles
+                for (int x = 0; x < BOARD_WIDTH; x++) {
+                    for (int y = 0; y < BOARD_HEIGHT; y++) {
+                        Tile tile = this.tiles[x, y];
+
+                        if (tile.Stone is StoneAvailable) {
+                            tile.Invalidate(true);
+                        }
+                    }
+                }
+            }
         }
     }
 }

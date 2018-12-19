@@ -40,7 +40,12 @@ namespace Reversi.AI {
         /// <param name="maxDepth">How many moves into the future the AI will simulate</param>
         /// <param name="maxNewThreadDepth">How many moves into the future the AI will create new threads for simulation</param>
         public (int x, int y, int score) BestMove(int maxDepth, int maxNewThreadDepth, byte maximizingPlayer) {
-            // warning: this method is highly optimized and thus quite unreadable. you'd better just assume it works...
+            if (maxDepth < 1) {
+                //calculate score
+                return (-1, -1, this.CalcScore(maximizingPlayer));
+            }
+
+            // warning: this method is highly optimized and thus quite unreadable. you'd better not touch it and asume it works...
             var self = this;
 
             bool hasOponentInBetween = false;
@@ -58,6 +63,7 @@ namespace Reversi.AI {
             ulong diagonalAvailableTilesToBottomLeft = 0;
             ulong diagonalAvailableTilesToTopRight = 0;
 
+            //cheks for available tiles in the given direction
             void CheckTileAvailability(int startX, int startY, int endX, int endY, int scanDirectionX, int scanDirectionY, ref ulong availability) {
                 int minX = startX < endX ? startX : endX;
                 int maxX = startX < endX ? endX : startX;
@@ -73,7 +79,36 @@ namespace Reversi.AI {
                     startsWithOwnColor = false;
                     
                     for (int x2 = x, y2 = y; x2 >= 0 && x2 < BOARD_WIDTH && y2 >= 0 && y2 < BOARD_HEIGHT; x2 += scanDirectionX, y2 += scanDirectionY) {
-                        TileLogic(x2, y2, ref availability);
+                        byte tileState = self[x2, y2];
+
+                        if (tileState == self.player) {
+
+                            startsWithOwnColor = true;
+                            hasOponentInBetween = false;
+                        }
+                        else if (tileState == TileState.Empty) {
+                            if (startsWithOwnColor && hasOponentInBetween) {
+                                //found possible move
+
+                                if (x2 > -1 && y2 > -1 && x2 < BOARD_WIDTH && y2 < BOARD_HEIGHT //check bounds
+                                    && self[x2, y2] == TileState.Empty) /* check if tile is empty */ {
+
+                                    ulong index = 1ul << x2 + y2 * BOARD_WIDTH;
+                                    availability |= index;
+
+                                    if ((allAvailableTiles & index) == 0) {
+                                        allAvailableTiles |= index;
+                                        totalAvailableTiles += 1;
+                                    }
+                                }
+                            }
+                            startsWithOwnColor = false;
+                            hasOponentInBetween = false;
+                        }
+                        else {
+                            //found oponent stone
+                            hasOponentInBetween = true;
+                        }
                     }
                 }
             }
@@ -85,56 +120,18 @@ namespace Reversi.AI {
 
             CheckTileAvailability(0, 0, BOARD_WIDTH - 1 - 2, 0, 1, 1, ref diagonalAvailableTilesToBottomRight);
             CheckTileAvailability(BOARD_WIDTH - 1, BOARD_HEIGHT - 1, 2, BOARD_HEIGHT - 1, -1, -1, ref diagonalAvailableTilesToTopLeft);
-
             CheckTileAvailability(2, 0, BOARD_WIDTH - 1, 0, -1, 1, ref diagonalAvailableTilesToBottomLeft);
             CheckTileAvailability(0, BOARD_HEIGHT - 1, BOARD_WIDTH - 1 - 2, BOARD_HEIGHT - 1, 1, -1, ref diagonalAvailableTilesToTopRight);
 
-            void TileLogic(int x, int y, ref ulong availability) {
-                byte tileState = self[x, y];
-                if (tileState == self.player) {
-
-                    startsWithOwnColor = true;
-                    hasOponentInBetween = false;
-                }
-                else if (tileState == TileState.Empty) {
-                    if (startsWithOwnColor && hasOponentInBetween) {
-                        //found possible move
-                        int xLast = x;
-                        int yLast = y;
-
-                        if (xLast > -1 && yLast > -1 && xLast < BOARD_WIDTH && yLast < BOARD_HEIGHT //check bounds
-                            && self[xLast, yLast] == TileState.Empty) /* check if tile is empty */ {
-
-                            ulong index = 1ul << xLast + yLast * BOARD_WIDTH;
-                            availability |= index;
-
-                            if ((allAvailableTiles & index) == 0) {
-                                allAvailableTiles |= index;
-                                totalAvailableTiles += 1;
-                            }
-                        }
-                    }
-                    startsWithOwnColor = false;
-                    hasOponentInBetween = false;
-                }
-                else {
-                    //found oponent stone
-                    hasOponentInBetween = true;
-                }
-            }
-            
-            //calculate score
-            if(maxDepth < 1) {
-                return (-1, -1, this.CalcScore(maximizingPlayer));
-            }
-            else if(totalAvailableTiles < 1) {
+            //return results
+            if (totalAvailableTiles < 1) {
                 //no move possible, skip turn or end game
                 if (this.skippedPreviousTurn) {
                     //the game has ended
                     var (red, blue) = this.CountStones();
                     var score = maximizingPlayer == TileState.Red ? red - blue : blue - red;
 
-                    /// Draw gets a score of 0, winning <see cref="int.MaxValue"/>, losing negative <see cref="int.MaxValue"/>
+                    /// Tie gets a score of 0, winning <see cref="int.MaxValue"/>, losing negative <see cref="int.MaxValue"/>
                     return (-1, -1, Math.Sign(score) * int.MaxValue);
                 }
                 else {
@@ -296,10 +293,18 @@ namespace Reversi.AI {
             return (redStones, blueStones);
         }
 
+        /// <summary>
+        /// Assigns a score to the current state of the game that indicates who is winning
+        /// </summary>
+        /// <param name="maximizingPlayer"></param>
+        /// <returns></returns>
         private int CalcScore(byte maximizingPlayer) {
+            //this is where normally a neural network would come in to play, but that's far beyond the scope of this project
+
             const int DEFAULT_SCORE = 2;
             const int EDGE_SCORE = 3;
             const int CORNER_SCORE = 4;
+            const int TURN_ENDER_SCORE = 3;
 
             int redScore = 0;
             int blueScore = 0;
@@ -389,7 +394,14 @@ namespace Reversi.AI {
                     break;
             }
 
-            return this.player == TileState.Red ? redScore - blueScore : blueScore - redScore;
+            if(this.player == TileState.Red) {
+                redScore += TURN_ENDER_SCORE;
+            }
+            else {
+                blueScore += TURN_ENDER_SCORE;
+            }
+
+            return maximizingPlayer == TileState.Red ? redScore - blueScore : blueScore - redScore;
         }
 
         public byte this[int x, int y] {
